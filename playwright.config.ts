@@ -6,7 +6,8 @@ export default defineConfig({
   testDir: 'e2e',
   timeout: 60_000,
   use: {
-    baseURL: 'http://localhost:4173',
+    // BASE_URL=https://… runs the same suite against a deployed build.
+    baseURL: process.env.BASE_URL ?? 'http://localhost:4173',
     viewport: { width: 1280, height: 720 },
     locale: 'ru-RU',
     launchOptions: {
@@ -14,10 +15,12 @@ export default defineConfig({
       args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
     },
   },
-  webServer: {
-    command: 'npm run preview',
-    url: 'http://localhost:4173',
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  webServer: process.env.BASE_URL
+    ? undefined
+    : {
+        command: 'npm run preview',
+        url: 'http://localhost:4173',
+        reuseExistingServer: true,
+        timeout: 60_000,
+      },
 });

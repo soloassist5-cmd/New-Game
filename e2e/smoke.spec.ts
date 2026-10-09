@@ -35,15 +35,19 @@ test('play: walk, clap, see the echo, throw a stone', async ({ page }) => {
     const p = (window as any).__echo.game.world.player;
     return { x: p.x, y: p.y };
   });
+  // Software GL renders ~4 fps here and the loop caps catch-up ticks, so poll on game state, not wall time.
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(900);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(([bx, by]) => {
+          const w = (window as any).__echo.game.world;
+          return Math.hypot(w.player.x - bx, w.player.y - by) > 0.5 && w.stats.steps > 0;
+        }, [before.x, before.y]),
+      { timeout: 15000 },
+    )
+    .toBe(true);
   await page.keyboard.up('KeyW');
-  const after = await page.evaluate(() => {
-    const p = (window as any).__echo.game.world.player;
-    return { x: p.x, y: p.y, steps: (window as any).__echo.game.world.stats.steps };
-  });
-  expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(0.5);
-  expect(after.steps).toBeGreaterThan(0);
 
   await page.keyboard.press('Space');
   await page.waitForTimeout(450);
@@ -124,6 +128,18 @@ test('exit leads to the upgrade screen and the next depth', async ({ page }) => 
   await page.keyboard.press('Digit1');
   await expect.poll(() => state(page)).toBe('playing');
   expect(await page.evaluate(() => (window as any).__echo.game.world.depth)).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test('pressing Space right after starting claps instead of re-clicking the menu button', async ({ page }) => {
+  const errors = await boot(page, '?seed=focus');
+  const runs = await page.evaluate(() => (window as any).__echo.game.save.stats.runs);
+  await page.getByRole('button', { name: 'Спуститься' }).click();
+  await page.keyboard.press('Space');
+  await expect.poll(() => state(page)).toBe('playing');
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => (window as any).__echo.game.save.stats.runs)).toBe(runs + 1);
+  expect(await page.evaluate(() => (window as any).__echo.game.world.stats.claps)).toBe(1);
   expect(errors).toEqual([]);
 });
 
