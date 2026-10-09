@@ -103,13 +103,24 @@ test('monster reveal, death screen and instant restart', async ({ page }) => {
   await expect.poll(() => state(page)).toBe('dying');
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${SHOTS}/07-killcam.png` });
-  await expect.poll(() => state(page), { timeout: 5000 }).toBe('dead');
+  await expect.poll(() => state(page)).toBe('dead');
   await page.waitForTimeout(600);
   await page.screenshot({ path: `${SHOTS}/08-death.png` });
-  const t0 = Date.now();
-  await page.keyboard.press('KeyR');
-  await expect.poll(() => state(page)).toBe('playing');
-  expect(Date.now() - t0).toBeLessThan(1000);
+  // Restart latency measured inside the page, independent of the (slow) frame rate.
+  const restartMs = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const g = (window as any).__echo.game;
+        const t0 = performance.now();
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR' }));
+        const check = (): void => {
+          if (g.state === 'playing') resolve(performance.now() - t0);
+          else setTimeout(check, 5);
+        };
+        check();
+      }),
+  );
+  expect(restartMs).toBeLessThan(1000);
   expect(errors).toEqual([]);
 });
 
@@ -122,7 +133,7 @@ test('exit leads to the upgrade screen and the next depth', async ({ page }) => 
     w.player.x = w.level.exit.x + 0.5;
     w.player.y = w.level.exit.y;
   });
-  await expect.poll(() => state(page), { timeout: 5000 }).toBe('upgrade');
+  await expect.poll(() => state(page)).toBe('upgrade');
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${SHOTS}/09-upgrade.png` });
   await page.keyboard.press('Digit1');

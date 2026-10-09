@@ -4,7 +4,9 @@ const exe = process.env.PW_CHROMIUM ?? (process.env.CI ? undefined : '/opt/pw-br
 
 export default defineConfig({
   testDir: 'e2e',
-  timeout: 60_000,
+  timeout: 90_000,
+  // CI has no GPU: software GL renders 2–4 fps, so state transitions take seconds of wall time.
+  expect: { timeout: 15_000 },
   use: {
     // BASE_URL=https://… runs the same suite against a deployed build.
     baseURL: process.env.BASE_URL ?? 'http://localhost:4173',
