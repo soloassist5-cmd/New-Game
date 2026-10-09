@@ -6,6 +6,8 @@ import type { ListenerDef, MonsterKind, StalkerDef } from '../content/monsters';
 export type SoundKind =
   | 'step'
   | 'sneakStep'
+  | 'sprintStep'
+  | 'pant'
   | 'clap'
   | 'clapEcho'
   | 'throw'
@@ -37,7 +39,8 @@ export type SimEvent =
   | { type: 'throwDenied' }
   | { type: 'death'; killerId: number; kind: MonsterKind; x: number; y: number }
   | { type: 'noticed'; monsterId: number; kind: MonsterKind; x: number; y: number }
-  | { type: 'exit'; x: number; y: number };
+  | { type: 'exhausted' }
+  | { type: 'exit'; x: number; y: number; checkpoint: boolean };
 
 export interface PlayerCommand {
   forward: number; // -1..1
@@ -45,6 +48,7 @@ export interface PlayerCommand {
   yawDelta: number; // rad
   pitchDelta: number; // rad
   sneak: boolean;
+  sprint: boolean; // held
   clap: boolean; // edge
   throw: boolean; // edge
 }
@@ -55,6 +59,7 @@ export const EMPTY_COMMAND: PlayerCommand = {
   yawDelta: 0,
   pitchDelta: 0,
   sneak: false,
+  sprint: false,
   clap: false,
   throw: false,
 };
@@ -72,6 +77,12 @@ export interface Player {
   stepAcc: number; // m since last footstep
   clapCd: number; // s
   sneaking: boolean;
+  sprinting: boolean;
+  stamina: number; // 0..1
+  exhausted: boolean;
+  regenDelay: number; // s
+  pantT: number; // s of panting left
+  pantCd: number; // s to next pant
   /** Speed 0..1 relative to walk, for head-bob. */
   moving: number;
 }
@@ -150,6 +161,10 @@ export interface World {
   tickSounds: SoundEvent[];
   nextSoundId: number;
   beaconT: number;
+  /** This depth ends in a green, saving beacon. */
+  checkpoint: boolean;
+  /** Monster hearing/speed multiplier for this depth. */
+  threat: number;
   status: 'playing' | 'dead' | 'escaped';
   god: boolean;
   stats: { claps: number; throws: number; steps: number; time: number };

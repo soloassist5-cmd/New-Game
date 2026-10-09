@@ -8,6 +8,7 @@ export const PALETTE = {
   danger: [1.0, 0.23, 0.23], // #FF3B3B — monsters, only monsters
   exit: [1.0, 0.79, 0.3], // #FFC94D — the way out
   pickup: [0.7, 0.53, 1.0], // #B388FF — interactive things (stones)
+  save: [0.36, 1.0, 0.62], // #5CFF9D — green beacon: safety, the run is saved
   white: [0.91, 0.95, 0.97], // #E8F1F8 — UI text, impact sparks
 } as const;
 

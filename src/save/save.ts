@@ -1,10 +1,11 @@
 import type { Lang } from '../i18n/strings';
+import type { Checkpoint } from '../game/run';
 
 /**
  * Versioned save with migrations. A corrupted save never breaks the game:
  * it is backed up under `<key>.corrupt` and defaults are used.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 const KEY = 'echo.save';
 
 export interface Settings {
@@ -19,6 +20,8 @@ export interface Settings {
   indicators: boolean;
   subtitles: boolean;
   shapes: boolean;
+  /** Jump scare when a monster catches you. */
+  screamer: boolean;
   uiScale: number; // 0.8..1.4
   fov: number; // degrees
   lang: Lang | null; // null = auto
@@ -37,6 +40,8 @@ export interface SaveData {
   };
   /** Onboarding flags (which hints were already learnt). */
   seen: Record<string, boolean>;
+  /** Run saved at the last green beacon, or null. */
+  checkpoint: Checkpoint | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -51,6 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   indicators: true,
   subtitles: false,
   shapes: false,
+  screamer: true,
   uiScale: 1,
   fov: 75,
   lang: null,
@@ -63,6 +69,7 @@ export function defaultSave(): SaveData {
     bindings: {},
     stats: { bestDepth: 0, runs: 0, deaths: 0, dailyDate: '', dailyBest: 0 },
     seen: {},
+    checkpoint: null,
   };
 }
 
@@ -76,6 +83,12 @@ export const MIGRATIONS: Record<number, Migration> = {
     const rest: Record<string, unknown> = { ...d };
     delete rest.best;
     return { ...rest, stats, seen: {}, version: 2 };
+  },
+  // v3 added the checkpoint slot and moved sneak off Shift (Shift is sprint now).
+  2: (d) => {
+    const bindings = { ...((d.bindings as Record<string, string[]>) ?? {}) };
+    if (bindings.sneak?.some((c) => c.startsWith('Shift')) && !bindings.sprint) delete bindings.sneak;
+    return { ...d, bindings, checkpoint: null, version: 3 };
   },
 };
 
@@ -96,6 +109,7 @@ export function migrate(raw: Record<string, unknown>): SaveData {
     bindings: { ...(d.bindings ?? {}) },
     stats: { ...def.stats, ...(d.stats ?? {}) },
     seen: { ...(d.seen ?? {}) },
+    checkpoint: d.checkpoint ?? null,
   };
 }
 

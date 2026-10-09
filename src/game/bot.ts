@@ -65,7 +65,9 @@ export function botCommand(world: World, mem: BotMemory): PlayerCommand {
     }
     cmd.yawDelta = wrapAngle(bestYaw - p.yaw);
     cmd.forward = 1;
-    cmd.sneak = true;
+    // Hunted and close: run for it while there is breath; otherwise slip away quietly.
+    cmd.sprint = m.state === 'hunt' && d < 4.5 && !p.exhausted && p.stamina > 0.25;
+    cmd.sneak = !cmd.sprint;
     return cmd;
   }
 

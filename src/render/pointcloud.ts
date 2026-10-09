@@ -29,7 +29,15 @@ void main() {
   vAlpha = pow(1.0 - k, 1.7) * flash;
   vColor = color;
   vShape = shape > 0.5 && shape < 1.5 ? uShapes : shape;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec3 pos = position;
+  if (shape > 0.5 && shape < 1.5) {
+    // Monster points never sit still: a constant tremor plus rare glitch jumps.
+    float hsh = fract(sin(dot(position.xz + position.y, vec2(12.9898, 78.233))) * 43758.5453);
+    float glitch = step(0.94, fract(uTime * 1.3 + hsh * 7.0));
+    pos += vec3(sin(uTime * 23.0 + hsh * 40.0), sin(uTime * 17.0 + hsh * 31.0) * 0.6, cos(uTime * 19.0 + hsh * 27.0))
+      * (0.012 + 0.09 * glitch);
+  }
+  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
   float s = size * uScale / max(0.25, -mv.z) * (1.0 + 0.6 * exp(-age * 9.0));
   gl_PointSize = clamp(s, 1.0, vShape > 0.5 ? 14.0 : 7.0);

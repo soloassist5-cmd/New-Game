@@ -6,6 +6,8 @@
 export type SfxName =
   | 'step'
   | 'sneakStep'
+  | 'sprintStep'
+  | 'pant'
   | 'clap'
   | 'throw'
   | 'stoneLand'
@@ -14,6 +16,9 @@ export type SfxName =
   | 'breath'
   | 'scream'
   | 'beacon'
+  | 'beaconSave'
+  | 'save'
+  | 'screamer'
   | 'pickup'
   | 'denied'
   | 'exit'
@@ -24,8 +29,8 @@ export type SfxName =
   | 'uiConfirm';
 
 export const SFX_NAMES: SfxName[] = [
-  'step', 'sneakStep', 'clap', 'throw', 'stoneLand', 'monsterStep', 'growl', 'breath', 'scream',
-  'beacon', 'pickup', 'denied', 'exit', 'death', 'notice', 'heartbeat', 'uiMove', 'uiConfirm',
+  'step', 'sneakStep', 'sprintStep', 'pant', 'clap', 'throw', 'stoneLand', 'monsterStep', 'growl', 'breath', 'scream',
+  'beacon', 'beaconSave', 'save', 'screamer', 'pickup', 'denied', 'exit', 'death', 'notice', 'heartbeat', 'uiMove', 'uiConfirm',
 ];
 
 const noiseCache = new WeakMap<BaseAudioContext, AudioBuffer>();
@@ -118,6 +123,25 @@ function bell(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number, pe
   mod.stop(t + decay + 0.1);
 }
 
+const curveCache = new WeakMap<BaseAudioContext, Float32Array>();
+
+/** Soft-clip distortion: makes monster voices rough and wrong. */
+function distortion(ctx: BaseAudioContext, amount = 40): WaveShaperNode {
+  let curve = curveCache.get(ctx);
+  if (!curve) {
+    curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i / (curve.length - 1)) * 2 - 1;
+      curve[i] = ((1 + amount) * x) / (1 + amount * Math.abs(x));
+    }
+    curveCache.set(ctx, curve);
+  }
+  const ws = ctx.createWaveShaper();
+  ws.curve = curve as Float32Array<ArrayBuffer>;
+  ws.oversample = '2x';
+  return ws;
+}
+
 /** Returns the approximate tail length (s). `vary` is a random number in [0, 1). */
 export function playRecipe(ctx: BaseAudioContext, out: AudioNode, name: SfxName, t: number, vary: number): number {
   const p = 1 + (vary - 0.5) * 0.12; // ±6 % pitch
@@ -126,6 +150,14 @@ export function playRecipe(ctx: BaseAudioContext, out: AudioNode, name: SfxName,
       noiseBurst(ctx, out, t, { a: 0.004, d: 0.09, peak: 0.42 }, { type: 'bandpass', freq: 520 * p, q: 1.1 });
       tone(ctx, out, t, 'sine', 95 * p, { a: 0.003, d: 0.08, peak: 0.22 }, 55);
       return 0.15;
+    case 'sprintStep':
+      noiseBurst(ctx, out, t, { a: 0.002, d: 0.11, peak: 0.55 }, { type: 'bandpass', freq: 640 * p, q: 0.9 });
+      tone(ctx, out, t, 'sine', 110 * p, { a: 0.002, d: 0.1, peak: 0.32 }, 50);
+      return 0.16;
+    case 'pant':
+      noiseBurst(ctx, out, t, { a: 0.05, d: 0.28, peak: 0.24 }, { type: 'bandpass', freq: 1100 * p, q: 1.6, freqEnd: 700 * p });
+      noiseBurst(ctx, out, t + 0.34, { a: 0.04, d: 0.22, peak: 0.16 }, { type: 'bandpass', freq: 800 * p, q: 1.6, freqEnd: 1200 * p });
+      return 0.7;
     case 'sneakStep':
       noiseBurst(ctx, out, t, { a: 0.01, d: 0.07, peak: 0.12 }, { type: 'bandpass', freq: 380 * p, q: 1.4 });
       return 0.12;
@@ -159,11 +191,19 @@ export function playRecipe(ctx: BaseAudioContext, out: AudioNode, name: SfxName,
       f.type = 'lowpass';
       f.frequency.value = 420;
       f.Q.value = 4;
-      const g = envGain(ctx, t, { a: 0.15, d: 1.0, peak: 0.42 });
+      const g = envGain(ctx, t, { a: 0.15, d: 1.0, peak: 0.3 });
       const trem = ctx.createGain();
       trem.gain.value = 0.5;
       lfo.connect(lfoG).connect(trem.gain);
-      o.connect(f).connect(trem).connect(g).connect(out);
+      // A second, detuned voice a tritone up: two throats in one body.
+      const o2 = ctx.createOscillator();
+      o2.type = 'sawtooth';
+      o2.frequency.setValueAtTime(62 * p * 1.414, t);
+      o2.frequency.linearRampToValueAtTime(44 * p * 1.414, t + 1.1);
+      o2.connect(f);
+      o2.start(t);
+      o2.stop(t + 1.25);
+      o.connect(f).connect(distortion(ctx)).connect(trem).connect(g).connect(out);
       o.start(t);
       lfo.start(t);
       o.stop(t + 1.25);
@@ -189,8 +229,8 @@ export function playRecipe(ctx: BaseAudioContext, out: AudioNode, name: SfxName,
       f.type = 'bandpass';
       f.frequency.value = 1400;
       f.Q.value = 0.8;
-      const g = envGain(ctx, t, { a: 0.03, d: 0.9, peak: 0.34 });
-      car.connect(f).connect(g).connect(out);
+      const g = envGain(ctx, t, { a: 0.03, d: 0.9, peak: 0.26 });
+      car.connect(f).connect(distortion(ctx, 25)).connect(g).connect(out);
       car.start(t);
       mod.start(t);
       car.stop(t + 1);
@@ -201,6 +241,43 @@ export function playRecipe(ctx: BaseAudioContext, out: AudioNode, name: SfxName,
       bell(ctx, out, t, 880 * (1 + (vary - 0.5) * 0.02), 0.16, 1.6);
       bell(ctx, out, t + 0.12, 1318.5, 0.08, 1.4);
       return 1.8;
+    case 'beaconSave':
+      // Warm major chord, lower and rounder than the gold chime: "safe here".
+      bell(ctx, out, t, 523.25, 0.1, 2.2);
+      bell(ctx, out, t + 0.06, 659.25, 0.08, 2.0);
+      bell(ctx, out, t + 0.12, 783.99, 0.07, 2.0);
+      return 2.4;
+    case 'save':
+      [392, 523.25, 659.25, 783.99, 1046.5, 1568].forEach((f, i) => bell(ctx, out, t + i * 0.11, f, 0.11, 2.2));
+      return 3;
+    case 'screamer': {
+      // Jump scare: full-band noise slam + a cluster of detuned saws shrieking upward, hard-clipped.
+      const bus = ctx.createGain();
+      bus.gain.value = 1;
+      const clip = distortion(ctx, 60);
+      const g = envGain(ctx, t, { a: 0.004, d: 0.95, peak: 0.36 });
+      bus.connect(clip).connect(g).connect(out);
+      for (const [f0, f1] of [
+        [310, 980],
+        [327, 1040],
+        [466, 1460],
+        [221, 690],
+      ]) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f0, t);
+        o.frequency.exponentialRampToValueAtTime(f1, t + 0.18);
+        o.frequency.exponentialRampToValueAtTime(f0 * 0.7, t + 0.95);
+        const og = ctx.createGain();
+        og.gain.value = 0.22;
+        o.connect(og).connect(bus);
+        o.start(t);
+        o.stop(t + 1);
+      }
+      noiseBurst(ctx, bus, t, { a: 0.002, d: 0.6, peak: 0.5 }, { type: 'highpass', freq: 400 });
+      tone(ctx, out, t, 'sine', 70, { a: 0.002, d: 0.5, peak: 0.45 }, 30);
+      return 1.1;
+    }
     case 'pickup':
       bell(ctx, out, t, 1046.5 * p, 0.15, 0.4);
       bell(ctx, out, t + 0.07, 1568 * p, 0.12, 0.5);

@@ -101,8 +101,9 @@ test('monster reveal, death screen and instant restart', async ({ page }) => {
     m.y = g.world.player.y;
   });
   await expect.poll(() => state(page)).toBe('dying');
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: `${SHOTS}/07-killcam.png` });
+  // The screamer face is on screen during the first ~0.9 s of real time.
+  expect(await page.evaluate(() => (window as any).__echo.game.view.scareActive)).toBe(true);
+  await page.screenshot({ path: `${SHOTS}/07-screamer.png` });
   await expect.poll(() => state(page)).toBe('dead');
   await page.waitForTimeout(600);
   await page.screenshot({ path: `${SHOTS}/08-death.png` });
@@ -151,6 +152,63 @@ test('pressing Space right after starting claps instead of re-clicking the menu 
   await page.waitForTimeout(800);
   expect(await page.evaluate(() => (window as any).__echo.game.save.stats.runs)).toBe(runs + 1);
   expect(await page.evaluate(() => (window as any).__echo.game.world.stats.claps)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('sprint: Shift runs faster than walking and drains stamina', async ({ page }) => {
+  const errors = await boot(page, '?seed=sprint&depth=1');
+  await page.getByRole('button', { name: 'Спуститься' }).click();
+  await expect.poll(() => state(page)).toBe('playing');
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('KeyW');
+  await expect.poll(() => page.evaluate(() => (window as any).__echo.game.world.player.sprinting)).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as any).__echo.game.world.player.stamina < 0.95)).toBe(true);
+  await page.screenshot({ path: `${SHOTS}/11-sprint.png` });
+  await page.keyboard.up('KeyW');
+  await page.keyboard.up('ShiftLeft');
+  expect(errors).toEqual([]);
+});
+
+test('green beacon at depth 5 saves the run; menu and death screen offer it', async ({ page }) => {
+  const errors = await boot(page, '?seed=cp&depth=5');
+  await page.getByRole('button', { name: 'Спуститься' }).click();
+  await expect.poll(() => state(page)).toBe('playing');
+  expect(await page.evaluate(() => (window as any).__echo.game.world.checkpoint)).toBe(true);
+  // Clap next to the exit so the green portal is drawn, then step in.
+  await page.evaluate(() => {
+    const w = (window as any).__echo.game.world;
+    w.monsters = [];
+    w.player.x = w.level.exit.x - 0.9;
+    w.player.y = w.level.exit.y;
+    w.player.yaw = 0;
+  });
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${SHOTS}/12-green-beacon.png` });
+  await page.evaluate(() => {
+    const w = (window as any).__echo.game.world;
+    w.player.x = w.level.exit.x;
+    w.player.y = w.level.exit.y;
+  });
+  await expect.poll(() => state(page)).toBe('upgrade');
+  expect(await page.evaluate(() => (window as any).__echo.game.save.checkpoint?.depth)).toBe(6);
+  await page.keyboard.press('Digit2');
+  await expect.poll(() => state(page)).toBe('playing');
+  const cp = await page.evaluate(() => (window as any).__echo.game.save.checkpoint);
+  expect(Object.keys(cp.taken).length).toBe(1);
+  // Die at depth 6 → the death screen offers the beacon, R resumes at depth 6.
+  await page.evaluate(() => {
+    const g = (window as any).__echo.game;
+    const m = g.world.monsters.find((mo: any) => mo.kind === 'stalker');
+    m.state = 'hunt';
+    m.x = g.world.player.x + 0.4;
+    m.y = g.world.player.y;
+  });
+  await expect.poll(() => state(page)).toBe('dead');
+  await expect(page.getByRole('button', { name: /С маяка · глубина 6/ })).toBeVisible();
+  await page.keyboard.press('KeyR');
+  await expect.poll(() => state(page)).toBe('playing');
+  expect(await page.evaluate(() => (window as any).__echo.game.world.depth)).toBe(6);
   expect(errors).toEqual([]);
 });
 

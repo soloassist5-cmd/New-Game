@@ -38,6 +38,8 @@ const R = (r: Partial<Recipe>): Recipe => ({
 
 const RECIPES: Partial<Record<SoundEvent['kind'], Recipe>> = {
   step: R({ rays: 90, wallPts: 3, floorStep: 0.7, life: 2.0, intensity: 0.4, maxH: 1.4 }),
+  sprintStep: R({ rays: 140, wallPts: 4, floorStep: 0.8, life: 2.4, intensity: 0.55, maxH: 2.0 }),
+  pant: R({ rays: 40, wallPts: 1, floorStep: 0.6, life: 1.0, intensity: 0.22, maxH: 0.6, reveals: false }),
   sneakStep: R({ rays: 48, wallPts: 2, floorStep: 0.45, life: 1.4, intensity: 0.32, maxH: 0.6, reveals: false }),
   clap: R({ rays: 560, wallPts: 6, floorStep: 0.9, ceilStep: 1.8, life: 5.2, intensity: 0.75 }),
   clapEcho: R({ rays: 400, wallPts: 4, floorStep: 1.2, ceilStep: 2.4, life: 4.2, intensity: 0.45 }),
@@ -62,6 +64,8 @@ export class EchoPainter {
   }
 
   paint(world: World, s: SoundEvent, now: number): void {
+    this.viewer.x = world.player.x;
+    this.viewer.y = world.player.y;
     switch (s.kind) {
       case 'monsterStep':
       case 'growl':
@@ -148,54 +152,123 @@ export class EchoPainter {
     }
   }
 
-  /** Red silhouette. Stalker: tall and thin. Listener: low, wide, with "ears". */
+  /** Where the player is — monsters' eyes turn toward this. Updated every frame by the renderer. */
+  viewer = { x: 0, y: 0 };
+
+  /**
+   * Red silhouettes, drawn to unsettle: the stalker is too tall, its arms hang past its knees and
+   * its head is cocked; the listener is a spider-thing with jointed legs and a ring of a mouth.
+   * Points carry the "monster" shape, so the shader makes them twitch and glitch.
+   */
   monsterBody(m: Monster, birth: number, intensity: number, life: number, count: number): void {
     const c = this.cloud;
+    const R = PALETTE.danger;
+    const add = (x: number, h: number, y: number, k: number, size = 1.6, l = life): void =>
+      c.add(x, h, y, R, intensity * k * 1.25, birth + this.rnd() * 0.05, l * (0.8 + 0.4 * this.rnd()), size, SHAPE.cross);
+    // Body frame facing the viewer: f = forward, s = side.
+    let fx = this.viewer.x - m.x;
+    let fy = this.viewer.y - m.y;
+    const fl = Math.hypot(fx, fy) || 1;
+    fx /= fl;
+    fy /= fl;
+    const sx = -fy;
+    const sy = fx;
+    const at = (side: number, fwd: number): [number, number] => [m.x + sx * side + fx * fwd, m.y + sy * side + fy * fwd];
+
     if (m.kind === 'stalker') {
+      const headH = 2.2;
+      const tilt = 0.12; // cocked head
       for (let i = 0; i < count; i++) {
-        let h = Math.pow(this.rnd(), 0.85) * 2.15;
-        if (h > 1.6 && h < 1.74) h = 1.8 + this.rnd() * 0.3; // neck gap -> a readable head
-        const torso = h > 1.75 ? 0.14 : h > 0.9 ? 0.24 : 0.12;
-        const a = this.rnd() * Math.PI * 2;
-        const r = torso * (0.6 + 0.4 * this.rnd());
-        // Legs: two columns below 0.9 m.
-        const leg = h < 0.9 ? (this.rnd() < 0.5 ? -0.12 : 0.12) : 0;
-        c.add(m.x + Math.cos(a) * r + leg, h, m.y + Math.sin(a) * r, PALETTE.danger, intensity * (0.7 + 0.5 * this.rnd()), birth + this.rnd() * 0.05, life * (0.8 + 0.4 * this.rnd()), 1.7, SHAPE.cross);
-      }
-      // Arms hanging long.
-      for (let i = 0; i < count * 0.25; i++) {
-        const side = this.rnd() < 0.5 ? -1 : 1;
-        const h = 0.5 + this.rnd() * 1.1;
-        c.add(m.x + side * 0.32, h, m.y + (this.rnd() - 0.5) * 0.1, PALETTE.danger, intensity * 0.7, birth, life * 0.9, 1.4, SHAPE.cross);
-      }
-    } else {
-      for (let i = 0; i < count; i++) {
-        const a = this.rnd() * Math.PI * 2;
-        const r = 0.55 * Math.sqrt(this.rnd());
-        const h = (1 - r / 0.55) * 0.75 * this.rnd() + 0.05;
-        c.add(m.x + Math.cos(a) * r, h, m.y + Math.sin(a) * r, PALETTE.danger, intensity * (0.6 + 0.5 * this.rnd()), birth + this.rnd() * 0.05, life, 1.7, SHAPE.cross);
-      }
-      // Ears / feelers.
-      for (let k = 0; k < 6; k++) {
-        const a = (k / 6) * Math.PI * 2 + 0.3;
-        for (let j = 0; j < 6; j++) {
-          const t = j / 6;
-          c.add(m.x + Math.cos(a) * (0.5 + t * 0.7), 0.5 + t * 0.6, m.y + Math.sin(a) * (0.5 + t * 0.7), PALETTE.danger, intensity * (1 - t) * 0.8, birth + t * 0.05, life, 1.2, SHAPE.cross);
+        const u = this.rnd();
+        if (u < 0.32) {
+          // Legs: two thin columns, knees bent slightly forward.
+          const side = this.rnd() < 0.5 ? -0.11 : 0.11;
+          const h = this.rnd() * 1.0;
+          const [x, y] = at(side + (this.rnd() - 0.5) * 0.05, Math.sin((h / 1.0) * Math.PI) * 0.08);
+          add(x, h, y, 0.8 + 0.4 * this.rnd());
+        } else if (u < 0.7) {
+          // Narrow torso with ribs: points cluster on horizontal bands.
+          let h = 1.0 + this.rnd() * 0.95;
+          if (this.rnd() < 0.6) h = 1.15 + Math.round((h - 1.15) / 0.11) * 0.11;
+          const a = this.rnd() * Math.PI * 2;
+          const r = (0.13 + 0.08 * Math.sin(((h - 1) / 0.95) * Math.PI)) * (0.7 + 0.3 * this.rnd());
+          const [x, y] = at(Math.cos(a) * r, Math.sin(a) * r * 0.6);
+          add(x, h, y, 0.7 + 0.5 * this.rnd());
+        } else if (u < 0.88) {
+          // Head: small skull, tilted sideways, sitting on a long thin neck.
+          const a = this.rnd() * Math.PI * 2;
+          const b = Math.acos(this.rnd() * 2 - 1);
+          const r = 0.12;
+          const [x, y] = at(tilt + Math.sin(b) * Math.cos(a) * r, Math.sin(b) * Math.sin(a) * r);
+          add(x, headH + Math.cos(b) * r * 1.3, y, 0.9 + 0.3 * this.rnd());
+        } else {
+          // Arms: too long, hanging below the knees, with long fingers.
+          const side = this.rnd() < 0.5 ? -1 : 1;
+          const t = this.rnd();
+          const h = 1.85 - t * 1.6;
+          const [x, y] = at(side * (0.24 + t * 0.12), 0.05 + t * 0.1);
+          add(x, h, y, 0.75, 1.4);
+          if (t > 0.85) {
+            const [fx2, fy2] = at(side * (0.36 + (this.rnd() - 0.5) * 0.08), 0.15 + this.rnd() * 0.08);
+            add(fx2, h - this.rnd() * 0.2, fy2, 0.9, 1.2);
+          }
         }
+      }
+      // Neck.
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = at(tilt * (i / 8), 0);
+        add(x, 1.95 + (i / 8) * 0.14, y, 0.8, 1.3);
+      }
+      this.eyes(at, headH + 0.02, tilt, 0.05, birth, life);
+    } else {
+      // Listener: a low swollen body, eight jointed legs and a ring of a mouth turned at you.
+      for (let i = 0; i < count * 0.55; i++) {
+        const a = this.rnd() * Math.PI * 2;
+        const r = 0.42 * Math.sqrt(this.rnd());
+        const h = 0.35 + (1 - r / 0.42) * 0.35 * this.rnd();
+        const [x, y] = at(Math.cos(a) * r, Math.sin(a) * r);
+        add(x, h, y, 0.6 + 0.5 * this.rnd());
+      }
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2 + 0.2;
+        const ca = Math.cos(a);
+        const sa = Math.sin(a);
+        for (let j = 0; j <= 10; j++) {
+          const t = j / 10;
+          // Up to the knee, then down to the floor.
+          const reach = 0.35 + t * 0.95;
+          const h = t < 0.45 ? 0.45 + t * 1.3 : 1.03 - (t - 0.45) * 1.85;
+          const [x, y] = at(ca * reach, sa * reach);
+          add(x, Math.max(0.02, h), y, 0.85 - t * 0.3, 1.2);
+        }
+      }
+      for (let i = 0; i < 26; i++) {
+        const a = (i / 26) * Math.PI * 2;
+        const [x, y] = at(Math.cos(a) * 0.17, 0.4);
+        add(x, 0.55 + Math.sin(a) * 0.17, y, 1.2, 1.5);
       }
     }
   }
 
-  /** Golden portal: a column of light and a ring on the floor. */
+  /** Two hot points that look at the player. Bright enough to bloom white-red. */
+  private eyes(at: (side: number, fwd: number) => [number, number], h: number, offset: number, spread: number, birth: number, life: number): void {
+    for (const side of [-1, 1]) {
+      const [x, y] = at(offset + side * spread, 0.11);
+      for (let i = 0; i < 2; i++) this.cloud.add(x, h, y, PALETTE.danger, 2.4, birth, life * 1.1, 2.6, SHAPE.cross);
+    }
+  }
+
+  /** Exit portal: a column of light and a ring on the floor. Gold, or green on a checkpoint depth. */
   exitShape(world: World, birth: number, intensity: number, life: number, count: number): void {
     const e = world.level.exit;
+    const col = world.checkpoint ? PALETTE.save : PALETTE.exit;
     for (let i = 0; i < count; i++) {
       const a = this.rnd() * Math.PI * 2;
       if (i % 3 === 0) {
-        this.cloud.add(e.x + Math.cos(a) * 0.9, 0.03, e.y + Math.sin(a) * 0.9, PALETTE.exit, intensity * 0.9, birth, life, 2.2, SHAPE.diamond);
+        this.cloud.add(e.x + Math.cos(a) * 0.9, 0.03, e.y + Math.sin(a) * 0.9, col, intensity * 0.9, birth, life, 2.2, SHAPE.diamond);
       } else {
         const r = 0.35 + this.rnd() * 0.15;
-        this.cloud.add(e.x + Math.cos(a) * r, this.rnd() * H, e.y + Math.sin(a) * r, PALETTE.exit, intensity * (0.6 + 0.6 * this.rnd()), birth + this.rnd() * 0.08, life, 2.0, SHAPE.diamond);
+        this.cloud.add(e.x + Math.cos(a) * r, this.rnd() * H, e.y + Math.sin(a) * r, col, intensity * (0.6 + 0.6 * this.rnd()), birth + this.rnd() * 0.08, life, 2.0, SHAPE.diamond);
       }
     }
   }

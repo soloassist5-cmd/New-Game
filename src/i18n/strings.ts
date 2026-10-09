@@ -2,6 +2,17 @@ export type Lang = 'ru' | 'en';
 
 const ru = {
   'title.tagline': 'Ты видишь только звуком. И оно — тоже.',
+  'menu.fromCheckpoint': 'Продолжить с маяка · глубина {n}',
+  'death.fromCheckpoint': 'С маяка · глубина {n}',
+  'death.newRun': 'Новый забег',
+  'toast.saved': 'Маяк зажжён · забег сохранён',
+  'hint.sprint': 'бежать — быстро, но громко',
+  'hint.checkpoint': 'зелёный маяк сохранит забег',
+  'sub.beaconSave': 'зелёный маяк',
+  'action.sprint': 'Бежать',
+  'settings.screamer': 'Скример при поимке',
+  'death.hint.panting': 'Совет: беги короткими рывками — выдохшись, ты задыхаешься, и это слышно.',
+
   'menu.play': 'Спуститься',
   'menu.continue': 'Продолжить',
   'menu.daily': 'Ежедневный спуск',
@@ -107,6 +118,17 @@ export type StringKey = keyof typeof ru;
 
 const en: Record<StringKey, string> = {
   'title.tagline': 'You only see by sound. So does it.',
+  'menu.fromCheckpoint': 'Continue from beacon · depth {n}',
+  'death.fromCheckpoint': 'From beacon · depth {n}',
+  'death.newRun': 'New run',
+  'toast.saved': 'Beacon lit · run saved',
+  'hint.sprint': 'run — fast, but loud',
+  'hint.checkpoint': 'the green beacon saves your run',
+  'sub.beaconSave': 'green beacon',
+  'action.sprint': 'Run',
+  'settings.screamer': 'Jump scare when caught',
+  'death.hint.panting': 'Tip: run in short bursts — out of breath, you gasp, and they hear it.',
+
   'menu.play': 'Descend',
   'menu.continue': 'Continue',
   'menu.daily': 'Daily descent',

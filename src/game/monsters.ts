@@ -7,11 +7,12 @@ import { emitSound } from './sound';
 
 let nextId = 1;
 
-export function createStalker(x: number, y: number): Stalker {
+export function createStalker(x: number, y: number, threat = 1): Stalker {
+  const base = MONSTERS.stalker;
   return {
     id: nextId++,
     kind: 'stalker',
-    def: MONSTERS.stalker,
+    def: threat === 1 ? base : { ...base, hearing: base.hearing * threat, huntSpeed: base.huntSpeed * (1 + (threat - 1) * 0.4), investigateSpeed: base.investigateSpeed * (1 + (threat - 1) * 0.5) },
     state: 'idle',
     x,
     y,
@@ -29,8 +30,8 @@ export function createStalker(x: number, y: number): Stalker {
   };
 }
 
-export function createListener(x: number, y: number, phase: number): Listener {
-  const def = MONSTERS.listener;
+export function createListener(x: number, y: number, phase: number, threat = 1): Listener {
+  const def = threat === 1 ? MONSTERS.listener : { ...MONSTERS.listener, hearing: MONSTERS.listener.hearing * threat };
   return {
     id: nextId++,
     kind: 'listener',
@@ -88,7 +89,7 @@ function listenerHears(world: World, m: Listener, s: SoundEvent): void {
   if (m.state !== 'idle') return;
   const d = hears(world, m, s);
   if (d < 0) return;
-  if (s.kind === 'step' || s.kind === 'sneakStep') {
+  if (s.kind === 'step' || s.kind === 'sneakStep' || s.kind === 'sprintStep') {
     m.heardSteps.push(world.time);
     while (m.heardSteps.length && world.time - m.heardSteps[0] > m.def.rhythmWindow) m.heardSteps.shift();
     if (m.heardSteps.length < m.def.rhythmSteps) return;

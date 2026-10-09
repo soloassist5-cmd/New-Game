@@ -28,9 +28,10 @@ export function createWorld(opts: WorldOptions): World {
   const level: Level = generateLevel(seed, depthDef(opts.depth));
   const rng = new Rng(`${seed}:sim`);
   resetMonsterIds();
+  const threat = depthThreat(opts.depth);
   const monsters = [
-    ...level.stalkers.map((s) => createStalker(s.x, s.y)),
-    ...level.listeners.map((s, i) => createListener(s.x, s.y, (i * 0.37) % 1)),
+    ...level.stalkers.map((s) => createStalker(s.x, s.y, threat)),
+    ...level.listeners.map((s, i) => createListener(s.x, s.y, (i * 0.37) % 1, threat)),
   ];
   // Face the most open direction so the first frame looks down a corridor, not into a wall.
   let yaw = opts.yaw ?? 0;
@@ -65,6 +66,12 @@ export function createWorld(opts: WorldOptions): World {
       stepAcc: 0,
       clapCd: 0,
       sneaking: false,
+      sprinting: false,
+      stamina: 1,
+      exhausted: false,
+      regenDelay: 0,
+      pantT: 0,
+      pantCd: 0,
       moving: 0,
     },
     monsters,
@@ -76,6 +83,8 @@ export function createWorld(opts: WorldOptions): World {
     tickSounds: [],
     nextSoundId: 1,
     beaconT: 1.2,
+    checkpoint: isCheckpointDepth(opts.depth),
+    threat,
     status: 'playing',
     god: false,
     stats: { claps: 0, throws: 0, steps: 0, time: 0 },
@@ -83,6 +92,13 @@ export function createWorld(opts: WorldOptions): World {
 }
 
 export const maxStones = (w: World): number => BALANCE.stone.maxCount + w.mods.maxStonesBonus;
+
+export const isCheckpointDepth = (depth: number): boolean => depth % BALANCE.depth.checkpointEvery === 0;
+
+export function depthThreat(depth: number): number {
+  const d = BALANCE.depth;
+  return Math.min(d.threatMax, 1 + Math.max(0, depth - d.threatFrom + 1) * d.threatPerDepth);
+}
 
 /** Advance the world by one fixed step. Pure function of (world, cmd) — no DOM, audio or wall clock. */
 export function step(world: World, cmd: PlayerCommand, dt: number): void {
@@ -99,6 +115,27 @@ export function step(world: World, cmd: PlayerCommand, dt: number): void {
   p.yaw = wrapAngle(p.yaw + cmd.yawDelta);
   p.pitch = clamp(p.pitch + cmd.pitchDelta, -P.pitchLimit, P.pitchLimit);
 
+  // Stamina: sprint drains it; running dry locks sprint and makes you pant (audible!).
+  const S = BALANCE.stamina;
+  const forwardish = cmd.forward > 0.2;
+  p.sprinting = cmd.sprint && !cmd.sneak && forwardish && !p.exhausted && p.stamina > 0;
+  if (p.sprinting) {
+    p.stamina -= S.drainPerSec * dt;
+    p.regenDelay = S.regenDelay;
+    if (p.stamina <= 0) {
+      p.stamina = 0;
+      p.exhausted = true;
+      p.sprinting = false;
+      p.pantT = S.pantDuration;
+      p.pantCd = 0;
+      world.events.push({ type: 'exhausted' });
+    }
+  } else {
+    p.regenDelay = Math.max(0, p.regenDelay - dt);
+    if (p.regenDelay <= 0) p.stamina = Math.min(1, p.stamina + S.regenPerSec * dt);
+    if (p.exhausted && p.stamina >= S.recoverAt) p.exhausted = false;
+  }
+
   // Move: exponential smoothing toward the target velocity (no ice, no snapping).
   p.sneaking = cmd.sneak;
   const fx = Math.cos(p.yaw);
@@ -110,7 +147,8 @@ export function step(world: World, cmd: PlayerCommand, dt: number): void {
     ix /= il;
     iy /= il;
   }
-  const speed = (cmd.sneak ? P.sneakSpeed : P.walkSpeed) * m.speedMul;
+  const base = p.sprinting ? P.sprintSpeed : cmd.sneak ? P.sneakSpeed : P.walkSpeed * (p.exhausted ? P.exhaustedSpeedMul : 1);
+  const speed = base * m.speedMul;
   const rate = il > 0.01 ? P.accel : P.decel;
   const k = 1 - Math.exp(-rate * dt);
   p.vx += (ix * speed - p.vx) * k;
@@ -125,12 +163,27 @@ export function step(world: World, cmd: PlayerCommand, dt: number): void {
 
   // Footsteps.
   p.stepAcc += moved;
-  const stride = cmd.sneak ? P.sneakStride : P.walkStride;
+  const stride = p.sprinting ? P.sprintStride : cmd.sneak ? P.sneakStride : P.walkStride;
   if (p.stepAcc >= stride) {
     p.stepAcc -= stride;
     world.stats.steps++;
-    const r = cmd.sneak ? P.sneakStepRadius * m.sneakRadiusMul * m.stepRadiusMul : P.walkStepRadius * m.stepRadiusMul;
-    emitSound(world, { kind: cmd.sneak ? 'sneakStep' : 'step', x: p.x, y: p.y, radius: r, source: 'player', silent: false });
+    const r = p.sprinting
+      ? P.sprintStepRadius * m.stepRadiusMul
+      : cmd.sneak
+        ? P.sneakStepRadius * m.sneakRadiusMul * m.stepRadiusMul
+        : P.walkStepRadius * m.stepRadiusMul;
+    const kind = p.sprinting ? 'sprintStep' : cmd.sneak ? 'sneakStep' : 'step';
+    emitSound(world, { kind, x: p.x, y: p.y, radius: r, source: 'player', silent: false });
+  }
+
+  // Panting after running dry: loud enough for nearby monsters.
+  if (p.pantT > 0) {
+    p.pantT -= dt;
+    p.pantCd -= dt;
+    if (p.pantCd <= 0) {
+      p.pantCd = S.pantInterval;
+      emitSound(world, { kind: 'pant', x: p.x, y: p.y, radius: S.pantRadius, source: 'player', silent: false });
+    }
   }
   if (il < 0.01 && moved < 1e-3) p.stepAcc = Math.min(p.stepAcc, stride * 0.5);
 
@@ -236,7 +289,7 @@ export function step(world: World, cmd: PlayerCommand, dt: number): void {
   // Exit.
   if (world.status === 'playing' && Math.hypot(world.level.exit.x - p.x, world.level.exit.y - p.y) <= P.exitRadius) {
     world.status = 'escaped';
-    world.events.push({ type: 'exit', x: world.level.exit.x, y: world.level.exit.y });
+    world.events.push({ type: 'exit', x: world.level.exit.x, y: world.level.exit.y, checkpoint: world.checkpoint });
   }
 
   world.tick++;

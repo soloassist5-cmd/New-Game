@@ -26,7 +26,8 @@ export function h<K extends keyof HTMLElementTagNameMap>(
 export interface MenuData {
   best: number;
   dailyBest: number;
-  canContinue: boolean;
+  /** Depth saved at the last green beacon, 0 if none. */
+  checkpointDepth: number;
   seed: string;
 }
 
@@ -35,6 +36,9 @@ export interface DeathData {
   best: number;
   newBest: boolean;
   killer: 'stalker' | 'listener';
+  checkpointDepth: number;
+  /** Caught while out of breath. */
+  panting: boolean;
   claps: number;
   throws: number;
   steps: number;
@@ -43,6 +47,8 @@ export interface DeathData {
 
 export interface UiCallbacks {
   play(daily: boolean): void;
+  continueRun(): void;
+  newRun(): void;
   resume(): void;
   restart(): void;
   quit(): void;
@@ -72,6 +78,7 @@ export class Ui {
   private depthEl: HTMLElement;
   private stonesEl: HTMLElement;
   private cdArc: SVGCircleElement;
+  private staminaArc: SVGCircleElement;
   private hintsEl: HTMLElement;
   private subsEl: HTMLElement;
   private toastEl: HTMLElement;
@@ -104,7 +111,16 @@ export class Ui {
     this.cdArc.setAttribute('stroke-dasharray', `${2 * Math.PI * 9}`);
     this.cdArc.setAttribute('transform', 'rotate(-90)');
     this.cdArc.style.opacity = '0';
-    svg.append(dot, this.cdArc);
+    this.staminaArc = document.createElementNS(svgNS, 'circle');
+    this.staminaArc.setAttribute('r', '14');
+    this.staminaArc.setAttribute('fill', 'none');
+    this.staminaArc.setAttribute('stroke', 'rgba(232,241,248,0.75)');
+    this.staminaArc.setAttribute('stroke-width', '2');
+    this.staminaArc.setAttribute('stroke-dasharray', `${2 * Math.PI * 14}`);
+    this.staminaArc.setAttribute('transform', 'rotate(-90)');
+    this.staminaArc.style.opacity = '0';
+    this.staminaArc.style.transition = 'opacity .3s';
+    svg.append(dot, this.cdArc, this.staminaArc);
     const cross = h('div', { class: 'crosshair' });
     cross.append(svg);
     this.hintsEl = h('div', { class: 'hints' });
@@ -146,11 +162,17 @@ export class Ui {
     const c = 2 * Math.PI * 9;
     this.cdArc.style.opacity = clapFrac > 0 ? '0.8' : '0';
     this.cdArc.setAttribute('stroke-dashoffset', String(c * clapFrac));
+    // Stamina: an outer ring that only appears while it is not full; blinks when exhausted.
+    const p = world.player;
+    const cs = 2 * Math.PI * 14;
+    this.staminaArc.setAttribute('stroke-dashoffset', String(cs * (1 - p.stamina)));
+    const blink = p.exhausted ? 0.35 + 0.35 * Math.sin(performance.now() / 90) : 0.8;
+    this.staminaArc.style.opacity = p.stamina < 0.999 ? String(blink) : '0';
   }
 
-  hint(id: string, key: string, text: string, gold = false): void {
+  hint(id: string, key: string, text: string, tone: '' | 'gold' | 'save' = ''): void {
     if (this.hints.has(id)) return;
-    const el = h('div', { class: `hint${gold ? ' gold' : ''}` }, h('span', { class: 'key' }, key), h('span', {}, text));
+    const el = h('div', { class: `hint${tone ? ` ${tone}` : ''}` }, h('span', { class: 'key' }, key), h('span', {}, text));
     this.hintsEl.append(el);
     this.hints.set(id, el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('on')));
@@ -168,13 +190,14 @@ export class Ui {
     for (const id of [...this.hints.keys()]) this.dismissHint(id);
   }
 
-  toast(text: string, ms = 1800): void {
+  toast(text: string, ms = 1800, tone: '' | 'save' = ''): void {
     this.toastEl.textContent = text;
+    this.toastEl.classList.toggle('save', tone === 'save');
     this.toastEl.classList.add('on');
     setTimeout(() => this.toastEl.classList.remove('on'), ms);
   }
 
-  subtitle(text: string, kind: 'danger' | 'exit' | '' = ''): void {
+  subtitle(text: string, kind: 'danger' | 'exit' | 'save' | '' = ''): void {
     const el = h('div', { class: `sub ${kind}` }, `[${text}]`);
     this.subsEl.append(el);
     while (this.subsEl.childElementCount > 3) this.subsEl.firstElementChild?.remove();
@@ -272,7 +295,8 @@ export class Ui {
         h(
           'div',
           { class: 'menu' },
-          this.btn(t('menu.play'), () => this.cb.play(false), true),
+          d.checkpointDepth > 0 ? this.btn(t('menu.fromCheckpoint', { n: d.checkpointDepth }), () => this.cb.continueRun(), true) : null,
+          this.btn(t('menu.play'), () => this.cb.play(false), d.checkpointDepth === 0),
           this.btn(t('menu.daily'), () => this.cb.play(true)),
           this.btn(t('menu.settings'), () => {
             this.settingsReturn = 'menu';
@@ -374,6 +398,7 @@ export class Ui {
           toggle('settings.indicators', s.indicators, (v) => set({ indicators: v })),
           toggle('settings.subtitles', s.subtitles, (v) => set({ subtitles: v })),
           toggle('settings.shapes', s.shapes, (v) => set({ shapes: v })),
+          toggle('settings.screamer', s.screamer, (v) => set({ screamer: v })),
           slider('settings.uiScale', s.uiScale, 0.8, 1.4, 0.05, (v) => set({ uiScale: v })),
           slider('settings.fov', s.fov, 60, 100, 1, (v) => set({ fov: v })),
           h('div', { class: 'field' }, h('span', {}, t('settings.lang')), langBtn),
@@ -431,11 +456,14 @@ export class Ui {
         h('div', { class: 'title', style: 'font-size:3.2em;letter-spacing:.2em;margin:0' }, String(d.depth)),
         h('div', { class: 'stats' }, d.newBest ? h('span', { class: 'best' }, t('death.newBest')) : t('death.best', { n: d.best })),
         h('div', { class: 'stats' }, t('death.stats', { claps: d.claps, throws: d.throws, steps: d.steps, time: `${mm}:${ss}` })),
-        h('div', { class: 'muted' }, t(d.killer === 'stalker' ? 'death.hint.stalker' : 'death.hint.listener')),
+        h('div', { class: 'muted' }, t(d.panting ? 'death.hint.panting' : d.killer === 'stalker' ? 'death.hint.stalker' : 'death.hint.listener')),
         h(
           'div',
           { class: 'row' },
-          this.btn(`${t('death.retry')} [${this.cb.bindingLabel('restart')}]`, () => this.cb.restart(), true),
+          d.checkpointDepth > 0
+            ? this.btn(`${t('death.fromCheckpoint', { n: d.checkpointDepth })} [${this.cb.bindingLabel('restart')}]`, () => this.cb.restart(), true)
+            : this.btn(`${t('death.retry')} [${this.cb.bindingLabel('restart')}]`, () => this.cb.restart(), true),
+          d.checkpointDepth > 0 ? this.btn(t('death.newRun'), () => this.cb.newRun()) : null,
           this.btn(t('death.menu'), () => this.cb.quit()),
         ),
       ),

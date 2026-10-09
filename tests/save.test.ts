@@ -48,3 +48,19 @@ describe('save', () => {
     expect(d.settings.indicators).toBe(true);
   });
 });
+
+describe('save v3', () => {
+  it('v2 -> v3 adds an empty checkpoint and frees Shift for sprint', () => {
+    const d = migrate({ version: 2, bindings: { sneak: ['ShiftLeft'] }, settings: {}, stats: {}, seen: {} });
+    expect(d.version).toBe(3);
+    expect(d.checkpoint).toBeNull();
+    expect(d.bindings.sneak).toBeUndefined();
+    expect(d.settings.screamer).toBe(true);
+  });
+
+  it('keeps a stored checkpoint', () => {
+    const cp = { seed: 's', daily: false, depth: 6, mods: {}, taken: {}, stones: 2, totals: { claps: 0, throws: 0, steps: 0, time: 0 } };
+    const d = migrate({ version: 3, checkpoint: cp });
+    expect(d.checkpoint?.depth).toBe(6);
+  });
+});

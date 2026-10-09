@@ -5,6 +5,7 @@
   --danger: #ff3b3b;
   --exit: #ffc94d;
   --pickup: #b388ff;
+  --save: #5cff9d;
   --text: #e8f1f8;
   --dim: rgba(232, 241, 248, 0.55);
   --bg: #000;
@@ -156,6 +157,13 @@ body {
   font-size: 0.85em;
   box-shadow: 0 0 10px rgba(79, 195, 247, 0.25) inset;
 }
+.hint.save .key {
+  color: var(--save);
+  border-color: rgba(92, 255, 157, 0.6);
+}
+.sub.save {
+  color: var(--save);
+}
 .hint.gold .key {
   color: var(--exit);
   border-color: rgba(255, 201, 77, 0.6);
@@ -210,6 +218,10 @@ body {
   opacity: 0;
   transition: opacity 0.8s var(--ease), letter-spacing 1.4s var(--ease);
   white-space: nowrap;
+}
+.toast.save {
+  color: var(--save);
+  text-shadow: 0 0 18px rgba(92, 255, 157, 0.7);
 }
 .toast.on {
   opacity: 1;

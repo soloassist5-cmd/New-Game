@@ -11,6 +11,7 @@ import type { World } from '../game/types';
 import { PointCloud } from './pointcloud';
 import { EchoPainter } from './echo';
 import { FinalShader } from './post';
+import { ScareFace } from './scare';
 
 const CELL = BALANCE.world.cellSize;
 const H = BALANCE.world.wallHeight;
@@ -33,6 +34,10 @@ export class SceneRenderer {
   readonly scene = new THREE.Scene();
   readonly cloud = new PointCloud();
   readonly echo = new EchoPainter(this.cloud);
+  readonly scare = new ScareFace();
+  /** Real (unscaled) clock — the screamer must not play in slow motion. */
+  private realTime = 0;
+  private sprintFov = 0;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private final: ShaderPass;
@@ -60,6 +65,8 @@ export class SceneRenderer {
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 200);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.cloud.points);
+    this.scene.add(this.camera);
+    this.camera.add(this.scare.points);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -113,6 +120,7 @@ export class SceneRenderer {
     this.occluder.renderOrder = 0;
     this.scene.add(this.occluder);
     this.cloud.clear();
+    this.scare.reset();
     this.killCam = null;
     this.exitCam = 0;
     this.danger = 0;
@@ -139,6 +147,16 @@ export class SceneRenderer {
   startKillCam(x: number, y: number): void {
     this.killCam = { x, y, t: 0 };
   }
+  /** Jump scare. Returns false if disabled in settings. */
+  screamer(): void {
+    this.scare.trigger(this.realTime);
+    this.flashScreen(0xffffff, 0.6);
+    this.aberration(1.6);
+    this.addTrauma(1);
+  }
+  get scareActive(): boolean {
+    return this.scare.active(this.realTime);
+  }
   startExitCam(): void {
     this.exitCam = 0.0001;
   }
@@ -150,16 +168,21 @@ export class SceneRenderer {
    */
   render(world: World | null, alpha: number, dt: number, scaledDt: number, lookDX = 0, lookDY = 0): void {
     this.time += scaledDt;
+    this.realTime += dt;
     const cam = this.camera;
     if (world) {
       const p = world.player;
+      this.echo.viewer.x = p.x;
+      this.echo.viewer.y = p.y;
+      // Sprint: wider FOV and a heavier bob sell the speed.
+      this.sprintFov = damp(this.sprintFov, p.sprinting ? 8 : 0, 6, dt);
       const x = lerp(p.prevX, p.x, alpha);
       const y = lerp(p.prevY, p.y, alpha);
       let yaw = p.yaw + lookDX;
       let pitch = Math.max(-1.35, Math.min(1.35, p.pitch + lookDY));
       // Head bob, scaled by the shake/motion setting.
-      this.bobPhase += scaledDt * (p.sneaking ? 6 : 9.5) * p.moving;
-      const bob = Math.sin(this.bobPhase) * 0.035 * p.moving * this.settings.shake;
+      this.bobPhase += scaledDt * (p.sneaking ? 6 : p.sprinting ? 13 : 9.5) * p.moving;
+      const bob = Math.sin(this.bobPhase) * (p.sprinting ? 0.06 : 0.035) * p.moving * this.settings.shake;
       let eye = BALANCE.world.eyeHeight + bob - (p.sneaking ? 0.25 : 0);
       if (this.killCam) {
         this.killCam.t += dt;
@@ -187,7 +210,7 @@ export class SceneRenderer {
     }
     this.trauma = Math.max(0, this.trauma - 1.5 * dt);
     this.fovPunch = damp(this.fovPunch, 0, 7, dt);
-    const fov = this.settings.fov + this.fovPunch;
+    const fov = this.settings.fov + this.fovPunch + this.sprintFov;
     if (Math.abs(cam.fov - fov) > 0.01) {
       cam.fov = fov;
       cam.updateProjectionMatrix();
@@ -208,6 +231,7 @@ export class SceneRenderer {
     this.cloud.material.uniforms.uTime.value = this.time;
     this.cloud.material.uniforms.uShapes.value = this.settings.shapes ? 1 : 0;
     this.cloud.flush();
+    this.scare.update(this.realTime, this.renderer.domElement.height);
     this.composer.render(dt);
   }
 }

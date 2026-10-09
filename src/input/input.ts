@@ -13,11 +13,12 @@ export type Action =
   | 'clap'
   | 'throw'
   | 'sneak'
+  | 'sprint'
   | 'pause'
   | 'restart';
 
-export const ACTIONS: Action[] = ['moveForward', 'moveBack', 'moveLeft', 'moveRight', 'turnLeft', 'turnRight', 'clap', 'throw', 'sneak', 'pause', 'restart'];
-export const REBINDABLE: Action[] = ['moveForward', 'moveBack', 'moveLeft', 'moveRight', 'turnLeft', 'turnRight', 'clap', 'throw', 'sneak', 'restart'];
+export const ACTIONS: Action[] = ['moveForward', 'moveBack', 'moveLeft', 'moveRight', 'turnLeft', 'turnRight', 'clap', 'throw', 'sneak', 'sprint', 'pause', 'restart'];
+export const REBINDABLE: Action[] = ['moveForward', 'moveBack', 'moveLeft', 'moveRight', 'turnLeft', 'turnRight', 'clap', 'throw', 'sneak', 'sprint', 'restart'];
 
 export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   moveForward: ['KeyW', 'ArrowUp'],
@@ -28,7 +29,9 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   turnRight: ['ArrowRight', 'KeyE'],
   clap: ['Mouse0', 'Space'],
   throw: ['Mouse2', 'KeyF'],
-  sneak: ['ShiftLeft', 'ShiftRight', 'KeyC'],
+  // Ctrl is avoided on purpose: Ctrl+W closes the browser tab mid-run.
+  sneak: ['KeyC', 'KeyZ'],
+  sprint: ['ShiftLeft', 'ShiftRight'],
   pause: ['Escape', 'KeyP'],
   restart: ['KeyR'],
 };
@@ -37,7 +40,8 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
 const PAD_BUTTONS: Partial<Record<Action, number[]>> = {
   clap: [7, 0], // RT, A
   throw: [6, 2], // LT, X
-  sneak: [10, 4], // L3, LB
+  sneak: [4, 1], // LB, B (B is "back" only in menus)
+  sprint: [10, 5], // L3, RB
   pause: [9], // Start
   restart: [8], // Back/Select
 };
@@ -85,7 +89,11 @@ export class Input {
 
   constructor(private target: HTMLElement, overrides: Record<string, string[]> = {}) {
     this.bindings = { ...DEFAULT_BINDINGS };
-    for (const a of ACTIONS) if (overrides[a]?.length) this.bindings[a] = overrides[a];
+    const overridden = ACTIONS.filter((a) => overrides[a]?.length);
+    for (const a of overridden) this.bindings[a] = overrides[a];
+    // A code chosen by the player wins over a default bound elsewhere (e.g. old saves with Shift = sneak).
+    const taken = new Set(overridden.flatMap((a) => this.bindings[a]));
+    for (const a of ACTIONS) if (!overridden.includes(a)) this.bindings[a] = this.bindings[a].filter((c) => !taken.has(c));
     this.attach();
   }
 

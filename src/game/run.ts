@@ -55,6 +55,41 @@ export function applyUpgrade(run: Run, id: string): void {
   if (u.stonesNow) run.stones = Math.min(BALANCE.stone.maxCount + run.mods.maxStonesBonus, run.stones + u.stonesNow);
 }
 
+/** Saved at a green beacon. Restoring it rebuilds the run at the next depth. */
+export interface Checkpoint {
+  seed: string;
+  daily: boolean;
+  depth: number; // depth to resume at
+  mods: Modifiers;
+  taken: Record<string, number>;
+  stones: number;
+  totals: Run['totals'];
+}
+
+export function checkpointFromRun(run: Run, resumeDepth: number): Checkpoint {
+  return {
+    seed: run.seed,
+    daily: run.daily,
+    depth: resumeDepth,
+    mods: { ...run.mods },
+    taken: { ...run.taken },
+    stones: run.stones,
+    totals: { ...run.totals },
+  };
+}
+
+export function runFromCheckpoint(cp: Checkpoint): Run {
+  return {
+    seed: cp.seed,
+    daily: cp.daily,
+    depth: cp.depth,
+    mods: { ...BASE_MODIFIERS, ...cp.mods },
+    taken: { ...cp.taken },
+    stones: Math.max(cp.stones, BALANCE.stone.startCount),
+    totals: { ...cp.totals },
+  };
+}
+
 export function dailySeed(date = new Date()): string {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');

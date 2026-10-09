@@ -2,7 +2,7 @@ import { FixedLoop } from '../core/loop';
 import { EventBus } from '../core/events';
 import { step } from '../game/sim';
 import { monsterThreat } from '../game/monsters';
-import { absorbWorld, applyUpgrade, createRun, dailySeed, randomSeed, rollUpgrades, worldForRun, type Run } from '../game/run';
+import { absorbWorld, applyUpgrade, checkpointFromRun, createRun, dailySeed, randomSeed, rollUpgrades, runFromCheckpoint, worldForRun, type Run } from '../game/run';
 import { EMPTY_COMMAND, type PlayerCommand, type SimEvent, type SoundEvent, type World } from '../game/types';
 import { BALANCE } from '../game/config';
 import { Input, keyLabel, type Action } from '../input/input';
@@ -62,8 +62,10 @@ export class Game {
     this.input = new Input(canvas, this.save.bindings);
     this.ui = new Ui({
       play: (daily) => this.startRun(daily),
+      continueRun: () => this.continueFromCheckpoint(),
       resume: () => this.resume(),
-      restart: () => this.startRun(this.run?.daily ?? false),
+      restart: () => this.retry(),
+      newRun: () => this.startRun(false),
       quit: () => this.toMenu(),
       openSettings: () => this.openSettings(),
       closeSettings: () => this.closeSettings(),
@@ -113,7 +115,7 @@ export class Game {
     this.setState('menu');
     this.ui.showHud(false);
     this.ui.clearHints();
-    this.ui.showMenu({ best: this.save.stats.bestDepth, dailyBest: this.dailyBestToday(), canContinue: false, seed: this.nextSeed });
+    this.ui.showMenu({ best: this.save.stats.bestDepth, dailyBest: this.dailyBestToday(), checkpointDepth: this.save.checkpoint?.depth ?? 0, seed: this.nextSeed });
     this.loop.timeScale = 1;
   }
 
@@ -127,6 +129,24 @@ export class Game {
     this.queueSave();
     this.startLevel();
   }
+
+  /** Resume the run saved at the last green beacon. */
+  async continueFromCheckpoint(): Promise<void> {
+    const cp = this.save.checkpoint;
+    if (!cp) return this.startRun(false);
+    await this.audio.init();
+    this.applySettings(this.save.settings, false);
+    this.run = runFromCheckpoint(cp);
+    this.startLevel();
+  }
+
+  /** After death: from the checkpoint if there is one, otherwise a fresh run. */
+  retry(): void {
+    if (this.save.checkpoint) this.continueFromCheckpoint();
+    else this.startRun(this.run?.daily ?? false);
+  }
+
+  private clearedCheckpoint = false;
 
   private startLevel(): void {
     if (!this.run) return;
@@ -185,6 +205,11 @@ export class Game {
     if (!this.run || this.state !== 'upgrade') return;
     applyUpgrade(this.run, id);
     this.run.depth++;
+    // The checkpoint was written when the beacon was reached; refresh it so it includes this upgrade.
+    if (this.clearedCheckpoint) {
+      this.save.checkpoint = checkpointFromRun(this.run, this.run.depth);
+      this.queueSave();
+    }
     this.startLevel();
   }
 
@@ -201,7 +226,7 @@ export class Game {
       else if (this.state === 'paused') this.resume();
       else if (this.state === 'settings') this.closeSettings();
     }
-    if (b.restart.includes(e.code) && this.state === 'dead') this.startRun(this.run?.daily ?? false);
+    if (b.restart.includes(e.code) && this.state === 'dead') this.retry();
     if (this.state === 'menu' && e.code === 'Enter' && document.activeElement === document.body) this.startRun(false);
     this.debug.onKey(e);
   }
@@ -249,6 +274,7 @@ export class Game {
     cmd.forward = axes.forward;
     cmd.strafe = axes.strafe;
     cmd.sneak = this.input.held('sneak');
+    cmd.sprint = this.input.held('sprint');
     if (this.firstTickOfFrame) {
       const m = this.input.takeMouse();
       cmd.yawDelta += m.dx * MOUSE_RAD_PER_PX * s.sensitivity;
@@ -336,7 +362,7 @@ export class Game {
     }
     if (s === 'playing' || s === 'dying' || s === 'exiting') return;
     if (s === 'dead' && p.has(8)) {
-      this.startRun(this.run?.daily ?? false);
+      this.retry();
       return;
     }
     if (p.has(12) || p.has(14)) this.ui.moveFocus(-1);
@@ -349,7 +375,7 @@ export class Game {
   }
 
   // ---------- event reactions (audio / visuals / UI) ----------
-  private sub(key: 'sub.growl' | 'sub.scream' | 'sub.beacon' | 'sub.monsterStep' | 'sub.breath' | 'sub.stoneLand', x: number, y: number, kind: 'danger' | 'exit' | '', throttle = 1.2): void {
+  private sub(key: 'sub.growl' | 'sub.scream' | 'sub.beacon' | 'sub.beaconSave' | 'sub.monsterStep' | 'sub.breath' | 'sub.stoneLand', x: number, y: number, kind: 'danger' | 'exit' | 'save' | '', throttle = 1.2): void {
     if (!this.save.settings.subtitles || !this.world) return;
     const now = performance.now() / 1000;
     if ((this.subThrottle.get(key) ?? 0) > now) return;
@@ -372,6 +398,12 @@ export class Game {
         break;
       case 'sneakStep':
         this.audio.play('sneakStep', { gain: 0.5, reverb: 0.1 });
+        break;
+      case 'sprintStep':
+        this.audio.play('sprintStep', { gain: 0.5, reverb: 0.35 });
+        break;
+      case 'pant':
+        this.audio.play('pant', { gain: 0.8, reverb: 0.2 });
         break;
       case 'clap':
         this.audio.play('clap', { gain: 0.9, reverb: 1 });
@@ -417,9 +449,15 @@ export class Game {
         this.sub('sub.scream', s.x, s.y, 'danger', 0.5);
         break;
       case 'beacon':
-        this.audio.play('beacon', { x: s.x, y: s.y, gain: 0.85, reverb: 0.8 });
-        this.ui.indicator(s.x, s.y, '#FFC94D', 1.8);
-        this.sub('sub.beacon', s.x, s.y, 'exit', 6);
+        if (w.checkpoint) {
+          this.audio.play('beaconSave', { x: s.x, y: s.y, gain: 0.9, reverb: 0.9 });
+          this.ui.indicator(s.x, s.y, '#5CFF9D', 1.8);
+          this.sub('sub.beaconSave', s.x, s.y, 'save', 6);
+        } else {
+          this.audio.play('beacon', { x: s.x, y: s.y, gain: 0.85, reverb: 0.8 });
+          this.ui.indicator(s.x, s.y, '#FFC94D', 1.8);
+          this.sub('sub.beacon', s.x, s.y, 'exit', 6);
+        }
         break;
     }
   }
@@ -450,16 +488,27 @@ export class Game {
       case 'throwDenied':
         this.audio.ui('denied');
         break;
+      case 'exhausted':
+        v.aberration(0.4);
+        break;
       case 'death': {
         this.lastDeath = e;
         this.setState('dying');
         this.loop.hitStop(0.08);
         this.loop.timeScale = 0.3;
-        this.audio.play('death', { gain: 1, reverb: 0.8 });
+        if (this.save.settings.screamer) {
+          // Jump scare: the face slams into the camera with a shriek, then the kill-cam turns to the body.
+          this.audio.play('screamer', { gain: 1, reverb: 0.3 });
+          this.audio.play('death', { gain: 0.6, reverb: 0.8, delay: 0.5 });
+          this.audio.duck(18, 1.2);
+          v.screamer();
+        } else {
+          this.audio.play('death', { gain: 1, reverb: 0.8 });
+          v.flashScreen(0xff1a1a, 0.55);
+          v.aberration(1.2);
+          v.addTrauma(0.8);
+        }
         v.startKillCam(e.x, e.y);
-        v.flashScreen(0xff1a1a, 0.55);
-        v.aberration(1.2);
-        v.addTrauma(0.8);
         const m = w.monsters.find((mo) => mo.id === e.killerId);
         if (m) v.echo.monsterBody(m, v.time, 1.6, 6, 220);
         this.input.exitPointerLock();
@@ -468,8 +517,14 @@ export class Game {
       }
       case 'exit':
         this.setState('exiting');
-        this.audio.play('exit', { gain: 0.9, reverb: 1 });
-        v.flashScreen(0xffc94d, 0.3);
+        if (e.checkpoint) {
+          this.audio.play('save', { gain: 0.9, reverb: 1 });
+          v.flashScreen(0x5cff9d, 0.35);
+          this.ui.toast(t('toast.saved').toUpperCase(), 2200, 'save');
+        } else {
+          this.audio.play('exit', { gain: 0.9, reverb: 1 });
+          v.flashScreen(0xffc94d, 0.3);
+        }
         v.startExitCam();
         v.echo.exitShape(w, v.time, 1.4, 3, 260);
         this.ui.clearHints();
@@ -498,13 +553,24 @@ export class Game {
     this.loop.timeScale = 1;
     this.ui.showHud(false);
     const killer = this.lastDeath?.type === 'death' ? this.lastDeath.kind : 'stalker';
-    this.ui.showDeath({ depth, best: this.save.stats.bestDepth, newBest: depth > prev && prev > 0, killer, ...run.totals });
+    this.ui.showDeath({
+      depth,
+      best: this.save.stats.bestDepth,
+      newBest: depth > prev && prev > 0,
+      killer,
+      checkpointDepth: this.save.checkpoint?.depth ?? 0,
+      panting: w.player.exhausted || w.player.pantT > 0,
+      ...run.totals,
+    });
   }
 
   private showUpgrade(): void {
     const run = this.run!;
     absorbWorld(run, this.world!);
     this.save.stats.bestDepth = Math.max(this.save.stats.bestDepth, run.depth + 1);
+    // Green beacon: save the run so a death later restarts from the next depth.
+    this.clearedCheckpoint = this.world!.checkpoint;
+    if (this.clearedCheckpoint) this.save.checkpoint = checkpointFromRun(run, run.depth + 1);
     this.queueSave();
     this.setState('upgrade');
     this.input.exitPointerLock();
@@ -518,6 +584,8 @@ export class Game {
     const seen = this.save.seen;
     if (!seen.move) this.ui.hint('move', 'WASD', t('hint.move'));
     if (w.depth === 2 && !seen.sneak) this.ui.hint('sneak', this.bindingLabel('sneak').split(' / ')[0], t('hint.sneak'));
+    if (w.depth === 3 && !seen.sprint) this.ui.hint('sprint', this.bindingLabel('sprint').split(' / ')[0], t('hint.sprint'));
+    if (w.checkpoint && !seen.checkpoint) this.ui.hint('checkpoint', '◆', t('hint.checkpoint'), 'save');
     if (w.depth >= 2 && !seen.throw && w.player.stones > 0) this.ui.hint('throw', this.bindingLabel('throw').split(' / ')[0], t('hint.throw'));
   }
 
@@ -535,12 +603,22 @@ export class Game {
       seen.clap = true;
       this.ui.dismissHint('clap');
       this.queueSave();
-      if (w.depth === 1) this.ui.hint('exit', '♪', t('hint.exit'), true);
+      if (w.depth === 1) this.ui.hint('exit', '♪', t('hint.exit'), 'gold');
       setTimeout(() => this.ui.dismissHint('exit'), 6000);
     }
     if (!seen.sneak && cmd.sneak && this.distanceThisLevel > 0) {
       seen.sneak = true;
       this.ui.dismissHint('sneak');
+      this.queueSave();
+    }
+    if (!seen.sprint && w.player.sprinting) {
+      seen.sprint = true;
+      this.ui.dismissHint('sprint');
+      this.queueSave();
+    }
+    if (!seen.checkpoint && w.checkpoint && this.hintTimer > 7) {
+      seen.checkpoint = true;
+      this.ui.dismissHint('checkpoint');
       this.queueSave();
     }
     if (!seen.throw && cmd.throw) {
