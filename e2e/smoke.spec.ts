@@ -9,7 +9,7 @@ async function boot(page: Page, query = ''): Promise<string[]> {
     if (m.type() === 'error') errors.push(m.text());
   });
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`/${query}`);
+  await page.goto(`/play/${query}`);
   await page.waitForFunction(() => (window as any).__echo?.game);
   return errors;
 }

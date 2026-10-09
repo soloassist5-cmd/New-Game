@@ -310,7 +310,7 @@ export class Ui {
           d.dailyBest > 0 ? ` · ${t('menu.dailyBest', { n: d.dailyBest })}` : null,
         ),
         h('div', { class: 'headphones' }, '🎧', t('menu.headphones')),
-        h('div', { class: 'seed' }, `v0.2 · ${t('menu.seed', { seed: d.seed })}`),
+        h('div', { class: 'seed' }, `v0.3 · ${t('menu.seed', { seed: d.seed })}`),
       ),
     );
   }

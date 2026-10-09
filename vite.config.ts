@@ -6,6 +6,8 @@ export default defineConfig({
     target: 'es2022',
     chunkSizeWarningLimit: 900,
     rollupOptions: {
+      // Landing page at /, the game at /play/.
+      input: { main: 'index.html', play: 'play/index.html' },
       output: { manualChunks: { three: ['three'] } },
     },
   },

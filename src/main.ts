@@ -23,9 +23,27 @@ function fatal(message: string): void {
   ui.append(box);
 }
 
+function bootTrailer(canvas: HTMLCanvasElement): void {
+  // Loaded lazily so the trailer code never ships in the game's critical path.
+  void import('./trailer/director').then(({ TrailerDirector, FPS }) => {
+    document.getElementById('ui')!.style.display = 'none';
+    const d = new TrailerDirector(canvas);
+    (window as unknown as Record<string, unknown>).__trailer = {
+      fps: FPS,
+      frames: d.frameCount,
+      frame: (i: number) => d.frame(i),
+      audio: () => d.audio(),
+    };
+  });
+}
+
 function boot(): void {
   setLang(detectLang());
   const canvas = document.getElementById('game') as HTMLCanvasElement;
+  if (new URLSearchParams(location.search).has('trailer')) {
+    bootTrailer(canvas);
+    return;
+  }
   const probe = document.createElement('canvas').getContext('webgl2');
   if (!probe) {
     fatal(t('error.webgl'));

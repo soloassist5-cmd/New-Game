@@ -58,8 +58,14 @@ export class SceneRenderer {
   private killCam: { x: number; y: number; t: number } | null = null;
   private exitCam = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
+  constructor(canvas: HTMLCanvasElement, opts: { preserveDrawingBuffer?: boolean } = {}) {
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: false,
+      powerPreference: 'high-performance',
+      alpha: false,
+      preserveDrawingBuffer: opts.preserveDrawingBuffer ?? false,
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.setClearColor(0x000000, 1);
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 200);
@@ -154,6 +160,12 @@ export class SceneRenderer {
     this.aberration(1.6);
     this.addTrauma(1);
   }
+  /** Trailer capture: bigger points and stronger bloom read better after video compression. */
+  tuneForVideo(): void {
+    this.bloom.strength = 1.15;
+    this.cloud.material.uniforms.uScale.value *= 1.35;
+  }
+
   get scareActive(): boolean {
     return this.scare.active(this.realTime);
   }

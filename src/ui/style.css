@@ -498,3 +498,50 @@ button.primary {
     transition-duration: 0.01s !important;
   }
 }
+
+/* ---------- Trailer title cards (only in ?trailer mode) ---------- */
+.trailer-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font);
+}
+.tr-black {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+}
+.tr-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  opacity: 0;
+}
+.tr-title {
+  font-size: 150px;
+  letter-spacing: 0.35em;
+  margin-left: 0.35em;
+  font-weight: 300;
+  color: var(--world);
+  text-shadow: 0 0 30px rgba(79, 195, 247, 0.8), 0 0 90px rgba(79, 195, 247, 0.4);
+}
+.tr-line {
+  font-size: 30px;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+.tr-small {
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  color: var(--dim);
+}
+.tr-card[data-tone='save'] .tr-small {
+  font-size: 30px;
+  color: var(--save);
+  text-shadow: 0 0 20px rgba(92, 255, 157, 0.7);
+}
