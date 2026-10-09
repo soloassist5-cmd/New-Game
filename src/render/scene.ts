@@ -163,6 +163,8 @@ export class SceneRenderer {
   /** Trailer capture: bigger points and stronger bloom read better after video compression. */
   tuneForVideo(): void {
     this.bloom.strength = 1.15;
+    // Film grain is incompressible noise for a video encoder; the codec adds its own texture.
+    this.final.uniforms.uGrain.value = 0;
     this.cloud.material.uniforms.uScale.value *= 1.35;
   }
 

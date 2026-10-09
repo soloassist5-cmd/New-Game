@@ -63,7 +63,9 @@ if (!preview) {
     '-y', '-loglevel', 'error',
     '-framerate', '30', '-i', join(outDir, 'frames', '%05d.jpg'),
     '-i', join(outDir, 'audio.wav'),
-    '-c:v', 'libx264', '-preset', 'slow', '-crf', '21', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    '-vf', 'hqdn3d=3:2:4:3',
+    '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-maxrate', '3M', '-bufsize', '6M',
+    '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
     '-c:a', 'aac', '-b:a', '160k', '-shortest',
     join('public', 'trailer.mp4'),
   ], { stdio: 'inherit' });

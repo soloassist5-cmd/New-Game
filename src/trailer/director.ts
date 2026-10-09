@@ -104,7 +104,7 @@ const ROOM_LISTENER = [
 const CHASE = [
   '############################',
   '#..........................#',
-  '#S.........M...............#',
+  '#S......M..................#',
   '#..........................#',
   '############################',
 ];
@@ -112,7 +112,7 @@ const CHASE = [
 const BEACON = [
   '##############',
   '#....#########',
-  '#S.........E.#',
+  '#S...E########',
   '#....#########',
   '##############',
 ];
@@ -185,6 +185,7 @@ const SHOTS: Shot[] = [
         m.state = 'linger';
         m.timer = 99;
       }
+      if (d.once('s-echo0', t >= 0.95)) d.visualClap(w, 0.5);
       if (d.once('s-echo', t >= 2.2)) d.visualClap(w, 0.55);
       if (d.once('s-echo2', t >= 3.2)) d.visualClap(w, 0.5);
       cmd.sneak = true;
@@ -250,11 +251,10 @@ const SHOTS: Shot[] = [
       w.beaconT = 0.2;
       return w;
     },
-    script(t, w, cmd, d) {
-      cmd.forward = t > 0.4 ? 0.85 : 0;
-      cmd.sneak = true;
-      if (d.once('b-clap', t >= 0.9)) cmd.clap = true;
-      if (d.once('b-clap2', t >= 1.9)) d.visualClap(w, 0.5);
+    script(t, _w, cmd, d) {
+      // Stand, let the green chime ring, clap, then walk into the portal (~6 m).
+      cmd.forward = t > 0.9 ? 0.7 : 0;
+      if (d.once('b-clap', t >= 0.5)) cmd.clap = true;
     },
   },
   {
@@ -280,7 +280,7 @@ function overlayAt(t: number): { black: number; title: number; line: string; sma
   }
   if (t >= 18.2 && t < 18.5) return { black: fade(18.2, 18.35, t), title: 0, line: '', small: '', tone: '' };
   if (t >= 23.25 && t < 23.7) return { black: 1 - fade(23.4, 23.7, t), title: 0, line: '', small: '', tone: '' };
-  if (t >= 25.6 && t < 26.5) return { black: fade(26.2, 26.5, t), title: fade(25.6, 25.8, t), line: '', small: 'МАЯК ЗАЖЖЁН · ЗАБЕГ СОХРАНЁН', tone: 'save' };
+  if (t >= 25.9 && t < 26.5) return { black: fade(26.25, 26.5, t), title: fade(25.9, 26.0, t), line: '', small: 'МАЯК ЗАЖЖЁН · ЗАБЕГ СОХРАНЁН', tone: 'save' };
   if (t >= 26.5) {
     const k = fade(27, 27.8, t);
     return { black: 1, title: k, line: t > 28.2 ? 'И оно — тоже.' : '', small: t > 29.2 ? 'Играй бесплатно в браузере · echo-v2-three.vercel.app' : '', tone: '' };
